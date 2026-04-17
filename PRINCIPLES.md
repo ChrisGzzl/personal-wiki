@@ -35,6 +35,14 @@
 - 反馈：全闭环（人工确认 + 拒绝信号回灌）
 - 存在成本：低
 
+### Ask（查询）
+
+**角色**：标签驱动的"按需取用"，零存在成本
+
+- 触发：`#ask` 关键字（确定性）或 `wiki query` 命令（确定性）
+- 反馈：开环（查询不修改知识库）
+- 存在成本：零（不查不消耗）
+
 ## 触发矩阵
 
 | 模块 | 触发 | 确定性 | 反馈闭环 | 存在成本 |
@@ -43,6 +51,8 @@
 | Capture (CLI) | 手动命令 | 确定性 | 开环 | 零 |
 | Compile | raw/ 有新文件 + guard | 确定性 | 半闭环 | 低 |
 | Promote | 人工审核 | 条件性 | 全闭环 | 低 |
+| Ask (#ask) | 标签触发 | 确定性 | 开环 | 零 |
+| Ask (CLI) | 手动命令 | 确定性 | 开环 | 零 |
 | GC | 手动触发 | 确定性 | 开环 | 零 |
 
 ## 角色定义
@@ -68,6 +78,7 @@
 #wiki 标记 / wiki capture → raw/           ← Capture
 wiki compile (+ guard)        → compiled/   ← Compile
 wiki promote (人工确认)        → wiki/       ← Promote
+#ask 标记 / wiki query        ← wiki/       ← Ask
 ```
 
 ## 原则

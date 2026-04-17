@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install-skill.sh - Install wiki skills (wiki-knowledge + wiki-capture) into openclaw agents
+# install-skill.sh - Install wiki skills (wiki-knowledge + wiki-capture + wiki-ask) into openclaw agents
 set -e
 
 FORCE=false
@@ -10,7 +10,7 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILLS=("wiki-knowledge" "wiki-capture")
+SKILLS=("wiki-knowledge" "wiki-capture" "wiki-ask")
 OPENCLAW_DIR="${OPENCLAW_DIR:-$HOME/openclaw/orchestrator-framework}"
 PARALLEL_DIR="${PARALLEL_DIR:-$HOME/openclaw/parallel-framework}"
 

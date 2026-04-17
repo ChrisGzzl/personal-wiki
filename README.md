@@ -60,9 +60,12 @@ wiki promote              # 列出待审核草稿
 wiki promote <file>       # 晋升指定草稿
 wiki promote --reject <file> --reason "原因"  # 拒绝并反馈
 
-# 查询
+# 查询（按需取用，不查不消耗）
 wiki query "我对知识管理的看法是什么？"
 wiki query --deep "梳理 AI Agent 相关的知识脉络"
+
+# 或在聊天中使用触发词
+# #wiki → 采集    #ask → 查询
 
 # 维护
 wiki status
@@ -132,20 +135,22 @@ models:
 
 ## Agent 集成（openclaw）
 
-如果你使用 openclaw agent 框架，可以安装两个 skill：
+如果你使用 openclaw agent 框架，可以安装三个 skill：
 
 ```bash
-# 安装采集 + 知识库技能
+# 安装采集 + 查询 + 知识库技能
 bash install-skill.sh
 ```
 
 - **wiki-capture**：监听 `#wiki` 关键字，自动提取上下文入库到 raw/
+- **wiki-ask**：监听 `#ask` 关键字，自动查询知识库回答问题
 - **wiki-knowledge**：查询、沉淀、维护知识库
 
 默认搜索 `~/openclaw/orchestrator-framework` 和 `~/openclaw/parallel-framework` 下的所有 agents。也可以直接手动 symlink：
 
 ```bash
 ln -s /path/to/personal-wiki/skill/wiki-capture /path/to/agent/skills/wiki-capture
+ln -s /path/to/personal-wiki/skill/wiki-ask /path/to/agent/skills/wiki-ask
 ln -s /path/to/personal-wiki/skill/wiki-knowledge /path/to/agent/skills/wiki-knowledge
 ```
 

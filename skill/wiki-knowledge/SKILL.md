@@ -1,13 +1,18 @@
 ---
 name: wiki-knowledge
 description: 个人知识库——查询/沉淀/维护
-version: "2.1"
+version: "2.2"
 trigger: 用户问及自身观点/偏好/决策，或需要沉淀知识时
 ---
 
 # Wiki Knowledge
 
 三级流程：capture → compile → promote。命令详情见 `wiki --help`。
+
+## 触发词
+
+- `#wiki` → 采集（见 wiki-capture skill）
+- `#ask` → 查询（见 wiki-ask skill）
 
 ## 权限
 
