@@ -19,7 +19,11 @@ class LLMClient:
         if self._client is None:
             if self.provider == "anthropic":
                 import anthropic
-                self._client = anthropic.Anthropic(api_key=self.config.api_key)
+                kwargs = {"api_key": self.config.api_key}
+                base_url = self.config.get("llm.base_url")
+                if base_url:
+                    kwargs["base_url"] = base_url
+                self._client = anthropic.Anthropic(**kwargs)
             else:
                 # openai-compatible (openai, azure, local, etc.)
                 from openai import OpenAI
@@ -45,7 +49,18 @@ class LLMClient:
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            return response.content[0].text
+            # Extract text from response, skipping thinking blocks
+            text_parts = []
+            for block in response.content:
+                if hasattr(block, "text") and block.type == "text":
+                    text_parts.append(block.text)
+            if not text_parts:
+                raise RuntimeError(
+                    f"LLM returned no text blocks. "
+                    f"Content types: {[b.type for b in response.content]}. "
+                    f"Possible cause: content filtered or model returned only thinking."
+                )
+            return "\n".join(text_parts)
         else:
             response = self.client.chat.completions.create(
                 model=model,

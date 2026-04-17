@@ -14,7 +14,7 @@ def _get_config(wiki_root: str | None) -> "Config":
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="wiki")
+@click.version_option(version="0.2.0", prog_name="wiki")
 def cli():
     """LLM Wiki — Personal Knowledge Base CLI (Karpathy-style).
 
@@ -33,16 +33,52 @@ def init(wiki_root: str):
 
 @cli.command()
 @click.option("--wiki-root", "-w", default=None, help="Wiki root directory (overrides WIKI_ROOT env var)")
+@click.option("--url", default=None, help="Fetch and capture a URL to raw/")
+@click.option("--text", default=None, help="Capture raw text to raw/")
+@click.option("--file", "file_path", default=None, type=click.Path(), help="Capture a local file to raw/")
+@click.option("--stdin", is_flag=True, default=False, help="Read content from stdin")
+def capture(wiki_root, url, text, file_path, stdin):
+    """Capture content into raw/ for later compilation.
+
+    This command only saves content — it does NOT compile.
+    Run `wiki compile` separately to compile raw files.
+    """
+    from wiki_cli.commands.capture import capture_command
+    config = _get_config(wiki_root)
+    file = Path(file_path) if file_path else None
+    capture_command(config, url=url, text=text, file=file, stdin=stdin)
+
+
+@cli.command()
+@click.option("--wiki-root", "-w", default=None, help="Wiki root directory (overrides WIKI_ROOT env var)")
+@click.option("--file", "raw_file", default=None, type=click.Path(), help="Compile a specific raw file")
+@click.option("--batch", default=None, type=int, help="Max files to process in one run")
+def compile(wiki_root, raw_file, batch):
+    """Compile raw materials into staged drafts (compiled/).
+
+    Scans raw/ for unprocessed files and compiles them to compiled/YYYY/MM/.
+    Use `wiki promote` to review and move compiled drafts into wiki/.
+    """
+    from wiki_cli.commands.compile import compile_command
+    config = _get_config(wiki_root)
+    file = Path(raw_file) if raw_file else None
+    compile_command(config, raw_file=file, batch_size=batch)
+
+
+@cli.command()
+@click.option("--wiki-root", "-w", default=None, help="Wiki root directory (overrides WIKI_ROOT env var)")
 @click.option("--url", default=None, help="Fetch and ingest a URL")
 @click.option("--text", default=None, help="Ingest raw text directly")
 @click.option("--file", "file_path", default=None, type=click.Path(), help="Ingest a local file")
 @click.option("--batch", default=None, type=int, help="Max files to process in one run")
 def ingest(wiki_root, url, text, file_path, batch):
-    """Compile raw materials into wiki entries.
+    """[DEPRECATED] Use 'wiki capture' + 'wiki compile' instead.
 
-    Without options: scans raw/ for unprocessed files.
-    With --url/--text/--file: ingest a specific source.
+    This command is retained for backward compatibility.
+    With --url/--text/--file: captures to raw/ then compiles.
+    Without options: compiles raw/ (same as 'wiki compile').
     """
+    console.print("[yellow]⚠ 'wiki ingest' is deprecated. Use 'wiki capture' + 'wiki compile' instead.[/yellow]")
     from wiki_cli.commands.ingest import ingest_command
     config = _get_config(wiki_root)
     file = Path(file_path) if file_path else None
@@ -92,19 +128,48 @@ def search(keyword, wiki_root, context):
 
 
 @cli.command()
-@click.argument("output_file")
+@click.argument("output_file", required=False, default=None)
 @click.option("--wiki-root", "-w", default=None, help="Wiki root directory")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview proposed changes without writing")
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt (automation mode)")
-def promote(output_file, wiki_root, dry_run, yes):
-    """Promote a saved output Q&A into a wiki entry.
+@click.option("--all", "promote_all", is_flag=True, default=False, help="Promote all pending compiled drafts")
+@click.option("--reject", default=None, help="Reject a specific compiled file")
+@click.option("--reason", default=None, help="Reason for rejection (used with --reject)")
+def promote(output_file, wiki_root, dry_run, yes, promote_all, reject, reason):
+    """Review and promote compiled drafts into wiki.
 
-    Always shows LLM's proposed changes for review before writing.
-    Use --dry-run to preview only. Use --yes to skip confirmation.
+    Without arguments: list pending compiled drafts sorted by reference frequency.
+    With a file argument: promote that compiled draft to wiki/.
+    Use --reject <file> --reason "..." to reject and provide feedback.
     """
     from wiki_cli.commands.promote import promote_command
     config = _get_config(wiki_root)
-    promote_command(config, output_file=output_file, dry_run=dry_run, yes=yes)
+    promote_command(
+        config,
+        output_file=output_file,
+        dry_run=dry_run,
+        yes=yes,
+        promote_all=promote_all,
+        reject=reject,
+        reason=reason,
+    )
+
+
+@cli.command()
+@click.option("--wiki-root", "-w", default=None, help="Wiki root directory")
+@click.option("--dry-run", is_flag=True, default=False, help="Preview what would be cleaned up")
+@click.option("--force", is_flag=True, default=False, help="Skip confirmation prompt")
+def gc(wiki_root, dry_run, force):
+    """Garbage collect stale raw/ and compiled/ files.
+
+    Rules:
+    - raw/ files older than 90 days with no compiled output → archive
+    - archived files older than 180 days → delete
+    - compiled/ drafts pending >180 days → auto-reject
+    """
+    from wiki_cli.commands.gc import gc_command
+    config = _get_config(wiki_root)
+    gc_command(config, dry_run=dry_run, force=force)
 
 
 @cli.command()

@@ -27,14 +27,21 @@ class WikiState:
             with open(self._path) as f:
                 return json.load(f)
         return {
-            "version": "1.0",
+            "version": "2.0",
             "last_ingest": None,
             "last_lint": None,
+            "last_compile": None,
+            "last_gc": None,
+            "last_audit": None,
             "processed_raw_files": [],
+            "compiled_files": [],
             "wiki_stats": {
                 "total_pages": 0,
                 "total_raw_files": 0,
                 "unprocessed_raw_files": 0,
+                "pending_compiled": 0,
+                "promoted_count": 0,
+                "rejected_count": 0,
                 "orphan_pages": 0,
                 "broken_links": 0,
             },
@@ -103,6 +110,18 @@ class WikiState:
         self._data["last_lint"] = datetime.now(timezone.utc).isoformat()
         self.save()
 
+    def update_last_compile(self):
+        self._data["last_compile"] = datetime.now(timezone.utc).isoformat()
+        self.save()
+
+    def update_last_gc(self):
+        self._data["last_gc"] = datetime.now(timezone.utc).isoformat()
+        self.save()
+
+    def update_last_audit(self):
+        self._data["last_audit"] = datetime.now(timezone.utc).isoformat()
+        self.save()
+
     def update_stats(self, **kwargs):
         self._data["wiki_stats"].update(kwargs)
         self.save()
@@ -116,5 +135,66 @@ class WikiState:
         return self._data.get("last_lint")
 
     @property
+    def last_compile(self) -> Optional[str]:
+        return self._data.get("last_compile")
+
+    @property
+    def last_gc(self) -> Optional[str]:
+        return self._data.get("last_gc")
+
+    @property
+    def last_audit(self) -> Optional[str]:
+        return self._data.get("last_audit")
+
+    @property
     def wiki_stats(self) -> dict:
         return self._data.get("wiki_stats", {})
+
+    # --- Compiled file tracking ---
+
+    def mark_compiled(self, compiled_path: str, raw_source: str):
+        """Record a compiled file in the tracking list."""
+        now = datetime.now(timezone.utc).isoformat()
+        compiled_files = self._data.setdefault("compiled_files", [])
+        compiled_files.append({
+            "path": compiled_path,
+            "raw_source": raw_source,
+            "compiled_at": now,
+            "status": "pending",
+        })
+        self.save()
+
+    def get_pending_compiled(self) -> list[dict]:
+        """Return compiled files with status='pending'."""
+        compiled_files = self._data.get("compiled_files", [])
+        return [e for e in compiled_files if e.get("status") == "pending"]
+
+    def get_compiled_entry(self, compiled_path: str) -> Optional[dict]:
+        """Find a compiled file entry by path."""
+        for entry in self._data.get("compiled_files", []):
+            if entry["path"] == compiled_path:
+                return entry
+        return None
+
+    def mark_promoted(self, compiled_path: str):
+        """Mark a compiled file as promoted."""
+        for entry in self._data.get("compiled_files", []):
+            if entry["path"] == compiled_path:
+                entry["status"] = "promoted"
+                entry["promoted_at"] = datetime.now(timezone.utc).isoformat()
+                break
+        stats = self._data.setdefault("wiki_stats", {})
+        stats["promoted_count"] = stats.get("promoted_count", 0) + 1
+        self.save()
+
+    def mark_rejected(self, compiled_path: str, reason: str = ""):
+        """Mark a compiled file as rejected."""
+        for entry in self._data.get("compiled_files", []):
+            if entry["path"] == compiled_path:
+                entry["status"] = "rejected"
+                entry["rejected_at"] = datetime.now(timezone.utc).isoformat()
+                entry["reject_reason"] = reason
+                break
+        stats = self._data.setdefault("wiki_stats", {})
+        stats["rejected_count"] = stats.get("rejected_count", 0) + 1
+        self.save()

@@ -12,6 +12,7 @@ from .config import Config
 from .llm import LLMClient
 from .state import WikiState
 from ..prompts.ingest import INGEST_SYSTEM, build_ingest_prompt
+from ..prompts.compile import COMPILE_SYSTEM, build_compile_prompt
 
 console = Console()
 
@@ -245,3 +246,120 @@ def _update_index(config: Config):
 
     index_path = wiki_dir / "index.md"
     _atomic_write(index_path, "".join(lines))
+
+
+def _get_compile_feedback(config: Config) -> str:
+    """Read compile_feedback.md for injection into compile prompt."""
+    fb_path = config.compile_feedback_file
+    if fb_path.exists():
+        content = _read_file_safe(fb_path, 4000)
+        # Skip the header comments
+        lines = content.split("\n")
+        body_lines = []
+        in_header = True
+        for line in lines:
+            if in_header and not line.startswith("#"):
+                in_header = False
+            if not in_header:
+                body_lines.append(line)
+        return "\n".join(body_lines).strip()
+    return ""
+
+
+def _get_compiled_output_path(config: Config, raw_file: Path) -> Path:
+    """Generate output path under compiled/YYYY/MM/ for a raw file."""
+    today = date.today()
+    dest_dir = config.compiled_dir / str(today.year) / f"{today.month:02d}"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    return dest_dir / raw_file.stem
+
+
+def compile_raw_to_staging(
+    raw_file: Path,
+    config: Config,
+    state: WikiState,
+    llm: LLMClient,
+) -> str | None:
+    """Compile a raw file into staged drafts in compiled/YYYY/MM/.
+
+    Unlike compile_file() which writes directly to wiki/, this function
+    outputs to the compiled/ staging area for later human review.
+
+    Returns the path of the compiled output, or None if no output produced.
+    """
+    raw_content = _read_file_safe(raw_file)
+    index_content = _get_index_content(config)
+    schema_content = _get_schema_content(config)
+    existing_stems = _get_existing_wiki_stems(config)
+    compile_feedback = _get_compile_feedback(config)
+
+    prompt = build_compile_prompt(
+        raw_content=raw_content,
+        raw_filename=raw_file.name,
+        existing_index=index_content,
+        schema_content=schema_content,
+        existing_wiki_stems=existing_stems,
+        compile_feedback=compile_feedback,
+    )
+
+    console.print(f"\n[dim]Compiling[/dim] [bold]{raw_file.name}[/bold]...")
+    response = llm.complete(COMPILE_SYSTEM, prompt, operation="compile")
+
+    try:
+        result = _parse_llm_response(response)
+    except CompileError as e:
+        console.print(f"  [red]✗ parse error:[/red] {e}")
+        raise
+
+    actions = result.get("actions", [])
+    summary = result.get("summary", "（无摘要）")
+    journal_entry = result.get("journal_entry", "")
+
+    if not actions:
+        console.print(f"  [yellow]⊘[/yellow] No actions produced for {raw_file.name}")
+        return None
+
+    # Write each create action to compiled/
+    compiled_path = _get_compiled_output_path(config, raw_file)
+    written_files = []
+
+    for action in actions:
+        if action.get("type") == "create":
+            content = action.get("content", "")
+            if not content:
+                continue
+            # For creates, write to compiled/ as individual files
+            action_path = action.get("path", "")
+            if action_path:
+                # Extract filename from the wiki path (e.g., wiki/concepts/xxx.md → xxx.md)
+                filename = Path(action_path).name
+            else:
+                filename = f"{compiled_path.name}.md"
+
+            out_path = compiled_path.parent / filename
+            _atomic_write(out_path, content)
+            written_files.append(str(out_path.relative_to(config.wiki_root)))
+            console.print(f"  [green]✓ staged[/green] {out_path.relative_to(config.wiki_root)}")
+
+        elif action.get("type") == "update":
+            # For updates, store as a patch file alongside creates
+            patch_data = {
+                "type": "update",
+                "path": action.get("path", ""),
+                "section": action.get("section", ""),
+                "append": action.get("append", ""),
+            }
+            patch_filename = f"patch-{compiled_path.name}.json"
+            patch_path = compiled_path.parent / patch_filename
+            _atomic_write(patch_path, json.dumps(patch_data, ensure_ascii=False, indent=2))
+            written_files.append(str(patch_path.relative_to(config.wiki_root)))
+            console.print(f"  [blue]✓ staged patch[/blue] {patch_path.relative_to(config.wiki_root)}")
+
+    # Write journal
+    _write_journal(config, raw_file.name, journal_entry, summary)
+
+    # Mark as processed in state and record compiled file
+    state.mark_processed(raw_file, [f"compiled/{compiled_path.relative_to(config.compiled_dir)}"])
+    state.mark_compiled(str(compiled_path.relative_to(config.wiki_root)), str(raw_file.relative_to(config.wiki_root)))
+
+    return str(compiled_path.relative_to(config.wiki_root)) if written_files else None

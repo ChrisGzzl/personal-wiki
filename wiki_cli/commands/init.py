@@ -20,10 +20,16 @@ SCHEMA_TEMPLATE = """\
 - 我独特的观点、判断和决策偏好
 - 从我阅读的素材中提炼的、与我相关的洞察
 
-## 目录结构
-- raw/        — 原始素材（只增不改）
-- wiki/       — LLM 编译的结构化知识条目
-- outputs/    — 问答存档，优质内容可提升回 wiki
+## 目录结构（v0.2.0 三级模型）
+- raw/        — 原始素材（Capture 写入，只增不改，有 TTL）
+- compiled/   — 编译暂存区（Compile 产出，待审核草稿）
+- wiki/       — 正式知识库（Promote 确认后才进入）
+- outputs/    — 问答存档
+
+## 三级流程
+1. Capture — 采集素材到 raw/（#wiki 标签触发或手动 wiki capture）
+2. Compile — 编译 raw/ 到 compiled/（wiki compile，LLM 粗加工）
+3. Promote — 审核 compiled/ 并晋升到 wiki/（wiki promote，人工闸门）
 
 ## 编译规则
 1. 每个概念/主题一个独立的 .md 文件，文件名用英文 kebab-case（如 knowledge-management.md）
@@ -32,8 +38,9 @@ SCHEMA_TEMPLATE = """\
 4. 使用 [[wikilink]] 格式做交叉引用
 5. 发现素材之间的矛盾时，使用 `> ⚠️ 矛盾标注：...` 格式明确标出
 6. 发现信息过时时，使用 `> ⏰ 时效提醒：...` 格式标注
-7. 每次编译后更新 wiki/index.md
-8. 每次编译后在 wiki/journal/ 中写一条编译日志
+7. 编译产出进入 compiled/ 暂存区，不直接写入 wiki/
+8. 只有经过 Promote（人工确认）的内容才进入 wiki/
+9. 每次编译后更新 wiki/index.md 和 journal/
 
 ## 问答规则
 1. 回答问题时，优先基于 wiki/ 中已有的知识
@@ -79,7 +86,7 @@ llm:
 
 # 可选：为不同操作指定不同模型（不填则都使用 llm.model）
 # models:
-#   ingest: "gpt-4o"        # 编译原始材料，需要强模型
+#   compile: "gpt-4o"        # 编译原始材料，需要强模型
 #   query: "gpt-4o-mini"    # 知识库问答，可用较快模型
 #   lint: "gpt-4o-mini"     # 健康检查，可用较弱模型
 
@@ -90,11 +97,15 @@ paths:
   outputs_dir: "outputs"
   schema_file: "schema.md"
   state_file: ".wiki_state.json"
+  compiled_dir: "compiled"
+  compile_feedback_file: "compile_feedback.md"
 
 behavior:
   lint_stale_days: 30
   max_raw_batch: 10
   language: "zh-CN"
+  raw_archive_days: 90
+  raw_delete_days: 180
 """
 
 INDEX_TEMPLATE = """\
@@ -102,7 +113,13 @@ INDEX_TEMPLATE = """\
 
 _最后更新：{today}_
 
-（知识库为空，运行 `wiki ingest` 编译素材后会自动更新此索引）
+（知识库为空，运行 `wiki compile` 编译素材、`wiki promote` 审核后自动更新此索引）
+"""
+
+COMPILE_FEEDBACK_TEMPLATE = """\
+# Compile 反馈记录
+# 此文件由 wiki promote --reject 自动追加，供 Compile 阶段参考
+# 你也可以手动编辑此文件来引导 Compile 的行为
 """
 
 
@@ -124,6 +141,8 @@ def init_command(wiki_root: Path):
         wiki_root / "raw" / "notes",
         wiki_root / "raw" / "images",
         wiki_root / "raw" / "misc",
+        wiki_root / "raw" / "archive",
+        wiki_root / "compiled",
         wiki_root / "wiki" / "concepts",
         wiki_root / "wiki" / "topics",
         wiki_root / "wiki" / "people",
@@ -151,6 +170,12 @@ def init_command(wiki_root: Path):
         )
         console.print(f"  [green]✓[/green] config.yaml")
 
+    # Write compile_feedback.md
+    feedback_path = wiki_root / "compile_feedback.md"
+    if not feedback_path.exists():
+        feedback_path.write_text(COMPILE_FEEDBACK_TEMPLATE, encoding="utf-8")
+        console.print(f"  [green]✓[/green] compile_feedback.md")
+
     # Write wiki/index.md
     index_path = wiki_root / "wiki" / "index.md"
     if not index_path.exists():
@@ -175,6 +200,7 @@ def init_command(wiki_root: Path):
 Next steps:
   1. Edit [cyan]{wiki_root}/schema.md[/cyan] — fill in your personal preferences
   2. Configure LLM in [cyan]{wiki_root}/config.yaml[/cyan]
-  3. Add raw materials to [cyan]{wiki_root}/raw/[/cyan]
-  4. Run [cyan]wiki ingest[/cyan] to compile
+  3. Capture content: [cyan]wiki capture --text "..."[/cyan] or use #wiki in chat
+  4. Compile: [cyan]wiki compile[/cyan]
+  5. Review & promote: [cyan]wiki promote[/cyan]
 """)

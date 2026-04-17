@@ -20,11 +20,15 @@ DEFAULT_CONFIG = {
         "outputs_dir": "outputs",
         "schema_file": "schema.md",
         "state_file": ".wiki_state.json",
+        "compiled_dir": "compiled",
+        "compile_feedback_file": "compile_feedback.md",
     },
     "behavior": {
         "lint_stale_days": 30,
         "max_raw_batch": 10,
         "language": "zh-CN",
+        "raw_archive_days": 90,
+        "raw_delete_days": 180,
     },
 }
 
@@ -87,6 +91,18 @@ class Config:
     @property
     def state_file(self) -> Path:
         return self.wiki_root / self._data["paths"]["state_file"]
+
+    @property
+    def compiled_dir(self) -> Path:
+        return self.wiki_root / self._data["paths"]["compiled_dir"]
+
+    @property
+    def compile_feedback_file(self) -> Path:
+        return self.wiki_root / self._data["paths"]["compile_feedback_file"]
+
+    @property
+    def raw_archive_dir(self) -> Path:
+        return self.raw_dir / "archive"
 
     @property
     def api_key(self) -> str:
