@@ -21,9 +21,15 @@ from ..core.compiler import (
     _atomic_write,
     _update_index,
     _write_journal,
+    _parse_llm_response,
+    _apply_actions,
+    _get_index_content as _get_compile_index_content,
+    _get_schema_content as _get_compile_schema_content,
 )
 from ..core.config import Config
+from ..core.llm import LLMClient
 from ..core.state import WikiState
+from ..prompts.ingest import INGEST_SYSTEM, build_ingest_prompt
 
 console = Console()
 
@@ -458,6 +464,22 @@ def _mark_promoted(path: Path):
         path.write_text(content, encoding="utf-8")
     except Exception:
         pass
+
+
+def _get_index_content(config: Config) -> str:
+    """Read wiki index.md for legacy promote."""
+    try:
+        return _get_compile_index_content(config)
+    except Exception:
+        return ""
+
+
+def _get_schema_content(config: Config) -> str:
+    """Read schema.md for legacy promote."""
+    try:
+        return _get_compile_schema_content(config)
+    except Exception:
+        return ""
 
 
 def _promote_legacy_output(config: Config, path: Path, dry_run: bool = False, yes: bool = False):
