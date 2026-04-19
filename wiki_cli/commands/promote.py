@@ -5,6 +5,7 @@ v0.2.0: Supports audit flow with compiled/ staging area.
 - With a file: promote that compiled draft to wiki/
 - --reject --reason: reject and feed back to compile_feedback.md
 """
+import json
 import re
 import shutil
 from datetime import date, datetime, timezone
@@ -165,6 +166,53 @@ def _list_pending(config: Config):
     console.print("To promote all: [cyan]wiki promote --all[/cyan]")
 
 
+def _apply_patch(config: Config, patch_file: Path):
+    """Apply a patch (section append) to an existing wiki page."""
+    try:
+        patch = json.loads(patch_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        console.print(f"  [yellow]⊘ Skipping invalid patch[/yellow] {patch_file.name}: {e}")
+        return
+
+    if patch.get("type") != "update":
+        return
+
+    target_path = patch.get("path", "")
+    section = patch.get("section", "")
+    append_text = patch.get("append", "")
+
+    if not target_path or not section or not append_text:
+        return
+
+    # Resolve target wiki file
+    wiki_file = config.wiki_root / target_path
+    if not wiki_file.exists():
+        console.print(f"  [yellow]⊘ Patch target not found[/yellow] {target_path}")
+        return
+
+    content = wiki_file.read_text(encoding="utf-8")
+
+    # Find the section header and append after its content block
+    section_pattern = re.escape(section)
+    match = re.search(rf'^{section_pattern}\s*$', content, re.MULTILINE)
+    if not match:
+        console.print(f"  [yellow]⊘ Section not found[/yellow] {section} in {target_path}")
+        return
+
+    # Find the next section header (## or ---) after this one
+    after_match = content[match.end():]
+    next_section = re.search(r'^#{1,3}\s|^---', after_match, re.MULTILINE)
+
+    if next_section:
+        insert_pos = match.end() + next_section.start()
+        new_content = content[:insert_pos] + f"\n{append_text}\n" + content[insert_pos:]
+    else:
+        new_content = content + f"\n{append_text}\n"
+
+    _atomic_write(wiki_file, new_content)
+    console.print(f"  [blue]✓ patched[/blue] {target_path} ({section})")
+
+
 def _promote_compiled(config: Config, compiled_path: Path, dry_run: bool = False, yes: bool = False):
     """Promote a compiled draft file directly to wiki/.
 
@@ -232,9 +280,11 @@ def _promote_compiled(config: Config, compiled_path: Path, dry_run: bool = False
 
     # Remove compiled file
     compiled_path.unlink()
-    # Also clean up patch files if any
-    patch_file = compiled_path.parent / f"patch-{compiled_path.stem}.json"
-    if patch_file.exists():
+
+    # Apply any associated patch files (updates to existing wiki pages)
+    # Patches are named patch-<stem>.json or patch-<raw-source>.json
+    for patch_file in compiled_path.parent.glob("patch-*.json"):
+        _apply_patch(config, patch_file)
         patch_file.unlink()
 
     console.print(f"\n[green]✓ Promoted.[/green] {dest_path.relative_to(config.wiki_root)}")
@@ -303,12 +353,12 @@ def _handle_reject(config: Config, reject_path: str, reason: str):
     rel_path = str(compiled_path.relative_to(config.wiki_root))
     state.mark_rejected(rel_path, reason)
 
-    # Delete the compiled file
+    # Delete the compiled file and all associated patches
     if compiled_path.exists():
         compiled_path.unlink()
-        # Also clean up patch files
-        patch_file = compiled_path.parent / f"patch-{compiled_path.stem}.json"
-        if patch_file.exists():
+    # Clean up all patch files in the same directory
+    if compiled_path.parent.exists():
+        for patch_file in compiled_path.parent.glob("patch-*.json"):
             patch_file.unlink()
 
     console.print(f"[yellow]✗ Rejected[/yellow] {compiled_path.name}")
