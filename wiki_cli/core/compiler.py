@@ -45,6 +45,174 @@ def _get_schema_content(config: Config) -> str:
     return "（无 schema.md，使用默认规则）"
 
 
+def _dedup_actions(actions: list[dict], existing_stems: set[str], config: Config) -> list[dict]:
+    """Deduplicate compile actions: convert create to update when content
+    overlaps with an existing wiki entry.
+
+    Checks both stem name and content keyword overlap to prevent duplicates.
+    """
+    deduped = []
+    for action in actions:
+        if action.get("type") != "create":
+            deduped.append(action)
+            continue
+
+        action_path = action.get("path", "")
+        stem = Path(action_path).stem if action_path else ""
+        content = action.get("content", "")
+
+        # Check 1: exact stem match
+        if stem and stem in existing_stems:
+            console.print(f"  [yellow]⟳ dedup:[/yellow] {stem} already exists, converting create → update")
+            deduped.append({
+                "type": "update",
+                "path": action_path,
+                "section": "## 关键观点",
+                "append": _extract_key_points(content),
+            })
+            continue
+
+        # Check 2: content overlap — extract keywords from new content
+        # and check against existing wiki entries
+        if content:
+            overlap_stem, overlap_score = _find_content_overlap(content, config, existing_stems)
+            if overlap_stem and overlap_score >= 0.4:
+                console.print(f"  [yellow]⟳ dedup:[/yellow] content overlaps with {overlap_stem} (score={overlap_score:.2f}), converting create → update")
+                # Find the actual wiki path for this stem
+                wiki_path = _find_wiki_path_for_stem(overlap_stem, config)
+                deduped.append({
+                    "type": "update",
+                    "path": wiki_path or action_path,
+                    "section": "## 关键观点",
+                    "append": _extract_key_points(content),
+                })
+                continue
+
+        deduped.append(action)
+
+    return deduped
+
+
+def _find_content_overlap(content: str, config: Config, existing_stems: set[str]) -> tuple[str | None, float]:
+    """Find the existing wiki entry with the highest keyword overlap.
+
+    Returns (stem, score) or (None, 0.0) if no significant overlap.
+    Uses keyword extraction + Jaccard-like similarity.
+    """
+    # Extract keywords from the new content (after frontmatter)
+    new_keywords = _extract_keywords(content)
+    if not new_keywords:
+        return None, 0.0
+
+    best_stem = None
+    best_score = 0.0
+
+    for stem in existing_stems:
+        wiki_path = _find_wiki_path_for_stem(stem, config)
+        if not wiki_path:
+            continue
+        full_path = config.wiki_root / wiki_path
+        if not full_path.exists():
+            continue
+
+        try:
+            existing_content = full_path.read_text(encoding="utf-8")[:8000]
+        except Exception:
+            continue
+
+        existing_keywords = _extract_keywords(existing_content)
+        if not existing_keywords:
+            continue
+
+        # Jaccard-like overlap score
+        intersection = new_keywords & existing_keywords
+        union = new_keywords | existing_keywords
+        score = len(intersection) / len(union) if union else 0.0
+
+        if score > best_score:
+            best_score = score
+            best_stem = stem
+
+    return best_stem, best_score
+
+
+def _extract_keywords(content: str, min_len: int = 3) -> set[str]:
+    """Extract meaningful keywords from content for overlap comparison.
+
+    Skips frontmatter, markdown syntax, and common stop words.
+    """
+    # Strip frontmatter
+    fm_end = content.find("---", 4)
+    if fm_end > 0:
+        content = content[fm_end + 3:]
+
+    # Strip markdown syntax
+    content = re.sub(r'[#*\[\]()`>|_\-]', ' ', content)
+    # Strip punctuation
+    content = re.sub(r'[^\w\s]', ' ', content)
+
+    # Common stop words (Chinese + English)
+    stop_words = {
+        "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一",
+        "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着",
+        "没有", "看", "好", "自己", "这", "他", "她", "它", "们", "那", "些",
+        "什么", "如何", "怎么", "为什么", "可以", "可能", "如果", "因为",
+        "但是", "所以", "或者", "还是", "以及", "通过", "进行", "使用",
+        "the", "and", "for", "are", "but", "not", "you", "all", "can",
+        "had", "her", "was", "one", "our", "out", "this", "that", "with",
+        "from", "they", "been", "have", "will", "what", "when", "which",
+    }
+
+    words = set()
+    for w in re.split(r'\s+', content):
+        w = w.strip().lower()
+        if len(w) < min_len:
+            continue
+        if w in stop_words:
+            continue
+        # For Chinese: also add bigrams for better matching
+        if any('\u4e00' <= c <= '\u9fff' for c in w):
+            for i in range(len(w) - 1):
+                bigram = w[i:i+2]
+                if len(bigram) >= 2:
+                    words.add(bigram)
+        words.add(w)
+
+    return words
+
+
+def _find_wiki_path_for_stem(stem: str, config: Config) -> str | None:
+    """Find the wiki/ path for a given stem."""
+    if not config.wiki_dir.exists():
+        return None
+    for p in config.wiki_dir.rglob("*.md"):
+        if p.stem == stem and p.parent.name != "journal":
+            return str(p.relative_to(config.wiki_root))
+    return None
+
+
+def _extract_key_points(content: str) -> str:
+    """Extract key points section from a compiled draft's content.
+
+    Used when converting a 'create' action to an 'update' action during dedup.
+    Falls back to a summary of the content if no 关键观点 section found.
+    """
+    # Try to extract the 关键观点 section
+    match = re.search(r'^## 关键观点\s*\n(.*?)(?=\n## |\Z)', content, re.MULTILINE | re.DOTALL)
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+
+    # Fallback: extract bullet points from the content
+    bullets = re.findall(r'^[-•]\s+.+$', content, re.MULTILINE)
+    if bullets:
+        return "\n".join(bullets)
+
+    # Last resort: first 500 chars after frontmatter
+    fm_end = content.find("---", 4)  # skip opening ---
+    body = content[fm_end + 3:].strip() if fm_end > 0 else content
+    return body[:500]
+
+
 def _get_existing_wiki_stems(config: Config) -> list[str]:
     """Return all existing wiki page stems (filename without .md extension)."""
     if not config.wiki_dir.exists():
@@ -318,6 +486,10 @@ def compile_raw_to_staging(
     if not actions:
         console.print(f"  [yellow]⊘[/yellow] No actions produced for {raw_file.name}")
         return None
+
+    # Dedup: convert create actions to update if stem already exists in wiki/
+    existing_stems_set = set(existing_stems)
+    actions = _dedup_actions(actions, existing_stems_set, config)
 
     # Write each create action to compiled/
     compiled_path = _get_compiled_output_path(config, raw_file)
