@@ -45,6 +45,109 @@ def _get_schema_content(config: Config) -> str:
     return "（无 schema.md，使用默认规则）"
 
 
+def _fix_wikilinks(actions: list[dict], valid_stems: set[str]) -> list[dict]:
+    """Fix broken wikilinks in action content before writing.
+
+    Replaces [[invalid-link]] with the closest valid stem match,
+    or removes the link if no reasonable match exists.
+    """
+    for action in actions:
+        if action.get("type") != "create":
+            continue
+
+        content = action.get("content", "")
+        if not content:
+            continue
+
+        # Find all [[wikilink]] references
+        original = content
+        for match in re.finditer(r'\[\[([^\]]+)\]\]', content):
+            link = match.group(1)
+            if link in valid_stems:
+                continue  # already valid
+
+            # Try to find a fuzzy match
+            fixed = _fuzzy_match_stem(link, valid_stems)
+            if fixed:
+                content = content.replace(f"[[{link}]]", f"[[{fixed}]]")
+                console.print(f"  [yellow]⟳ link fix:[/yellow] [[{link}]] → [[{fixed}]]")
+            else:
+                # No match: escape the link so it's not treated as wikilink
+                content = content.replace(f"[[{link}]]", f"`[[{link}]]`")
+                console.print(f"  [yellow]⟳ link fix:[/yellow] [[{link}]] → escaped (no match)")
+
+        if content != original:
+            action["content"] = content
+
+    # Also fix wikilinks in update action append text
+    for action in actions:
+        if action.get("type") != "update":
+            continue
+        append_text = action.get("append", "")
+        if not append_text:
+            continue
+
+        original = append_text
+        for match in re.finditer(r'\[\[([^\]]+)\]\]', append_text):
+            link = match.group(1)
+            if link in valid_stems:
+                continue
+            fixed = _fuzzy_match_stem(link, valid_stems)
+            if fixed:
+                append_text = append_text.replace(f"[[{link}]]", f"[[{fixed}]]")
+            else:
+                append_text = append_text.replace(f"[[{link}]]", f"`[[{link}]]`")
+
+        if append_text != original:
+            action["append"] = append_text
+
+    return actions
+
+
+def _fuzzy_match_stem(link: str, valid_stems: set[str]) -> str | None:
+    """Find the best matching valid stem for a broken wikilink.
+
+    Handles common LLM mistakes: Chinese names, wrong naming conventions,
+    close but not exact stem names.
+    """
+    # Skip obviously non-link content
+    if not link or len(link) < 2:
+        return None
+
+    link_lower = link.lower()
+
+    # Exact case-insensitive match
+    for stem in valid_stems:
+        if stem.lower() == link_lower:
+            return stem
+
+    # Check if link is a substring of a valid stem or vice versa
+    candidates = []
+    for stem in valid_stems:
+        stem_lower = stem.lower()
+        # Substring match
+        if link_lower in stem_lower or stem_lower in link_lower:
+            # Score by how much they overlap
+            overlap = min(len(link_lower), len(stem_lower)) / max(len(link_lower), len(stem_lower))
+            candidates.append((stem, overlap))
+
+    # Also try word-level matching for hyphenated stems
+    link_words = set(link_lower.replace("-", " ").split())
+    for stem in valid_stems:
+        stem_words = set(stem.lower().replace("-", " ").split())
+        word_overlap = len(link_words & stem_words) / max(len(link_words | stem_words), 1)
+        if word_overlap > 0.4:
+            candidates.append((stem, word_overlap))
+
+    if candidates:
+        candidates.sort(key=lambda x: -x[1])
+        best = candidates[0]
+        if best[1] >= 0.4:
+            return best[0]
+
+    return None
+
+
 def _dedup_actions(actions: list[dict], existing_stems: set[str], config: Config) -> list[dict]:
     """Deduplicate compile actions: convert create to update when content
     overlaps with an existing wiki entry.
@@ -490,6 +593,18 @@ def compile_raw_to_staging(
     # Dedup: convert create actions to update if stem already exists in wiki/
     existing_stems_set = set(existing_stems)
     actions = _dedup_actions(actions, existing_stems_set, config)
+
+    # Fix broken wikilinks in all actions before writing
+    # Collect stems created by this batch so internal links are valid
+    new_stems = set()
+    for action in actions:
+        if action.get("type") == "create":
+            action_path = action.get("path", "")
+            if action_path:
+                new_stems.add(Path(action_path).stem)
+    valid_stems = existing_stems_set | new_stems
+
+    actions = _fix_wikilinks(actions, valid_stems)
 
     # Write each create action to compiled/
     compiled_path = _get_compiled_output_path(config, raw_file)
