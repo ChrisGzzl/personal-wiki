@@ -14,7 +14,7 @@
 
 这个工具让 LLM 先把材料读完、理解完、做好结构化笔记，之后基于笔记回答问题。知识会积累，好的回答会沉淀回知识库，形成飞轮效应。
 
-v0.2.0 引入 **Harness 原则**驱动的三级模型：**Capture → Compile → Promote**。
+v0.2.0 引入 **Harness 原则**驱动的三级模型：**Capture → Compile → Promote**。v0.2.1 修复 promote --all 和 skill 硬约束问题。
 
 ## Harness 原则
 
@@ -135,24 +135,26 @@ models:
 
 ## Agent 集成（openclaw）
 
-如果你使用 openclaw agent 框架，可以安装三个 skill：
+如果你使用 openclaw agent 框架，可以安装四个 skill：
 
 ```bash
-# 安装采集 + 查询 + 知识库技能
+# 安装采集 + 查询 + 知识库 + 审核技能
 bash install-skill.sh
 ```
 
-- **wiki-capture**：监听 `#wiki` 关键字，自动提取上下文入库到 raw/
+- **wiki-capture**：监听 `#wiki` 关键字，自动提取上下文入库到 raw/（只采集，不编译不晋升）
 - **wiki-ask**：监听 `#ask` 关键字，自动查询知识库回答问题
 - **wiki-knowledge**：查询、沉淀、维护知识库
+- **wiki-promote**：监听 `wiki promote/reject` 命令，执行审核操作
 
-默认搜索 `~/openclaw/orchestrator-framework` 和 `~/openclaw/parallel-framework` 下的所有 agents。也可以直接手动 symlink：
+默认搜索 `~/openclaw/orchestrator-framework`、`~/openclaw/parallel-framework` 和 `~/sheryl/skills`。
+也可以指定自定义目录：
 
 ```bash
-ln -s /path/to/personal-wiki/skill/wiki-capture /path/to/agent/skills/wiki-capture
-ln -s /path/to/personal-wiki/skill/wiki-ask /path/to/agent/skills/wiki-ask
-ln -s /path/to/personal-wiki/skill/wiki-knowledge /path/to/agent/skills/wiki-knowledge
+bash install-skill.sh /path/to/agent/skills
 ```
+
+**注意：** 使用 `cp -r` 而非 symlink，因为 OpenClaw 的 symlink-escape 安全校验会拦截指向 root 外的 symlink。
 
 skill 的角色分工说明详见各 `SKILL.md`。
 

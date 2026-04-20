@@ -14,7 +14,7 @@ def _get_config(wiki_root: str | None) -> "Config":
 
 
 @click.group()
-@click.version_option(version="0.2.0", prog_name="wiki")
+@click.version_option(version="0.2.1", prog_name="wiki")
 def cli():
     """LLM Wiki — Personal Knowledge Base CLI (Karpathy-style).
 
