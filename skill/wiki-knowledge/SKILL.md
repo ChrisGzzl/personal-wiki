@@ -1,7 +1,7 @@
 ---
 name: wiki-knowledge
-description: 个人知识库——查询/沉淀/维护
-version: "2.2"
+description: 个人知识库——查询/沉淀/维护（personal-wiki CLI 工具，不是飞书知识库）
+version: "2.3"
 trigger: 用户问及自身观点/偏好/决策，或需要沉淀知识时
 ---
 
@@ -13,6 +13,12 @@ trigger: 用户问及自身观点/偏好/决策，或需要沉淀知识时
 
 - `#wiki` → 采集（见 wiki-capture skill）
 - `#ask` → 查询（见 wiki-ask skill）
+- `wiki promote` / `wiki reject` → 审核（见 wiki-promote skill）
+
+## 注意
+
+- **这是 personal-wiki CLI 工具的知识库，不是飞书知识库**
+- 当用户提到 "wiki" 时，优先匹配 personal-wiki 相关 skill，不是飞书 wiki 操作
 
 ## 权限
 

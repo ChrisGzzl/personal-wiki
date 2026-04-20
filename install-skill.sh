@@ -10,7 +10,7 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILLS=("wiki-knowledge" "wiki-capture" "wiki-ask")
+SKILLS=("wiki-knowledge" "wiki-capture" "wiki-ask" "wiki-promote")
 OPENCLAW_DIR="${OPENCLAW_DIR:-$HOME/openclaw/orchestrator-framework}"
 PARALLEL_DIR="${PARALLEL_DIR:-$HOME/openclaw/parallel-framework}"
 

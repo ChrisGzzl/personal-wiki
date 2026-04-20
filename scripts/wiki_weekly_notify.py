@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """wiki 周报 - 每周一推送待审核草稿到飞书"""
 
-import json, subprocess, os, sys
+import json, subprocess, os, sys, re
 from datetime import date
 from pathlib import Path
 
@@ -88,21 +88,22 @@ def main():
 暂无待审核草稿，知识库运行正常。
 回复 #ask 查询知识库，#wiki 采集新素材。"""
     else:
-        # Extract pending count from the table
-        count = pending.count("│") // 5 if "│" in pending else 0
-        count_line = ""
+        # Count data rows: lines that start with │ and contain a row number
+        count = 0
         for line in pending.split("\n"):
-            if "│" in line and "#" in line:
-                count_line += line.strip() + "\n"
+            stripped = line.strip()
+            if stripped.startswith("│") and re.match(r"│\s*\d", stripped):
+                count += 1
 
         msg = f"""📚 Wiki 周报 {today}
 有 {count} 条草稿待审核：
 
 {pending.strip()}
 
-操作方式：
-- 飞书回复我「wiki promote <标题>」晋升入库
-- 飞书回复我「wiki reject <标题>」拒绝并反馈
+操作方式（在飞书回复即可）：
+- 「wiki promote <标题>」晋升入库
+- 「wiki promote all」全部晋升
+- 「wiki reject <标题>」拒绝
 - 或 SSH 运行 wiki promote 命令"""
 
     token = get_feishu_token()
