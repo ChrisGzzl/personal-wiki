@@ -1,7 +1,7 @@
 ---
 name: wiki-knowledge
 description: 个人知识库——查询/沉淀/维护（personal-wiki CLI 工具，不是飞书知识库）
-version: "2.3"
+version: "2.4"
 trigger: 用户问及自身观点/偏好/决策，或需要沉淀知识时
 ---
 
@@ -11,9 +11,15 @@ trigger: 用户问及自身观点/偏好/决策，或需要沉淀知识时
 
 ## 触发词
 
-- `#wiki` → 采集（见 wiki-capture skill）
+- `#wiki` → 只采集（见 wiki-capture skill，**绝不自动 compile/promote**）
 - `#ask` → 查询（见 wiki-ask skill）
 - `wiki promote` / `wiki reject` → 审核（见 wiki-promote skill）
+
+## 🚫 硬约束
+
+- **#wiki 触发时只执行 capture，绝不自动 compile 或 promote**
+- 这是层次正确性约束，不是建议。历史上 agent 曾自动执行 compile+promote，导致未审核内容入库
+- compile 由 cron 定时任务自动触发，promote 由用户手动执行
 
 ## 注意
 

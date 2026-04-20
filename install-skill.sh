@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS=("wiki-knowledge" "wiki-capture" "wiki-ask" "wiki-promote")
 OPENCLAW_DIR="${OPENCLAW_DIR:-$HOME/openclaw/orchestrator-framework}"
 PARALLEL_DIR="${PARALLEL_DIR:-$HOME/openclaw/parallel-framework}"
+SHERYL_DIR="${SHERYL_DIR:-$HOME/sheryl/skills}"
 
 install_skill() {
     local skills_dir="$1"
@@ -98,6 +99,16 @@ else
         install_to_framework "$PARALLEL_DIR"
     else
         echo "parallel-framework not found at $PARALLEL_DIR, skipping"
+    fi
+
+    echo ""
+
+    # Mode 3: Sheryl agent skills directory
+    if [ -d "$SHERYL_DIR" ]; then
+        echo "[ sheryl ]"
+        install_all_skills "$SHERYL_DIR" "sheryl"
+    else
+        echo "sheryl skills dir not found at $SHERYL_DIR, skipping"
     fi
 fi
 

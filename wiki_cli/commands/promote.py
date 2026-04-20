@@ -290,6 +290,41 @@ def _promote_compiled(config: Config, compiled_path: Path, dry_run: bool = False
     console.print(f"\n[green]✓ Promoted.[/green] {dest_path.relative_to(config.wiki_root)}")
 
 
+def _apply_patches_for_entry(config: Config, state: WikiState, path_str: str, compiled_path: Path, dry_run: bool = False) -> bool:
+    """Apply patch files for a patch-only compiled entry (no .md file on disk).
+
+    When compile produces only updates (no new pages), there's no .md file
+    in compiled/, only patch-*.json files. This function applies those patches
+    and marks the entry as promoted.
+    """
+    # Derive stem from path (may or may not have .md extension)
+    stem = compiled_path.stem if compiled_path.suffix else compiled_path.name
+    parent = compiled_path.parent
+    if not parent.exists():
+        return False
+
+    # Find patch files matching this entry's stem
+    patch_files = [
+        f for f in parent.glob("patch-*.json")
+        if stem in f.stem
+    ]
+    if not patch_files:
+        return False
+
+    console.print(f"  [dim]Patch-only entry:[/dim] {path_str}")
+    if dry_run:
+        console.print(f"  [yellow]--dry-run: would apply {len(patch_files)} patch(es)[/yellow]")
+        return True
+
+    for patch_file in patch_files:
+        _apply_patch(config, patch_file)
+        patch_file.unlink()
+
+    state.mark_promoted(path_str)
+    console.print(f"  [green]✓ patches applied[/green] ({len(patch_files)})")
+    return True
+
+
 def _promote_all_pending(config: Config, dry_run: bool = False, yes: bool = False):
     """Promote all pending compiled drafts."""
     state = WikiState(config)
@@ -313,6 +348,11 @@ def _promote_all_pending(config: Config, dry_run: bool = False, yes: bool = Fals
         path_str = entry.get("path", "")
         compiled_path = config.wiki_root / path_str
         if not compiled_path.exists():
+            # Patch-only entry: no .md file, but may have patch .json files
+            # to apply to existing wiki pages
+            patch_applied = _apply_patches_for_entry(config, state, path_str, compiled_path, dry_run)
+            if patch_applied:
+                promoted += 1
             continue
         try:
             if not dry_run:
