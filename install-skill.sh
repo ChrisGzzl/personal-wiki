@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# install-skill.sh - Install wiki skills (wiki-knowledge + wiki-capture + wiki-ask) into openclaw agents
+# install-skill.sh - Install wiki skills into openclaw agents
+# Uses cp (not symlinks) because OpenClaw rejects symlink-escape (realpath outside skills root)
 set -e
 
 FORCE=false
@@ -19,7 +20,7 @@ install_skill() {
     local skill_name="$2"
     local label="$3"
     local src="$SCRIPT_DIR/skill/$skill_name"
-    local link="$skills_dir/$skill_name"
+    local dest="$skills_dir/$skill_name"
 
     if [ ! -d "$src" ]; then
         echo "  ✗ SKIP $skill_name: source not found at $src"
@@ -28,18 +29,13 @@ install_skill() {
 
     mkdir -p "$skills_dir"
 
-    if [ -e "$link" ] && [ ! -L "$link" ]; then
-        echo "  ✗ SKIP $label/$skill_name: exists and is not a symlink"
-        return 1
-    fi
-
-    if [ -L "$link" ]; then
+    if [ -d "$dest" ]; then
         if [ "$FORCE" = true ]; then
-            rm "$link"
+            rm -rf "$dest"
         else
-            read -p "  Symlink already exists: $label/$skill_name. Overwrite? [y/N] " answer
+            read -p "  Already exists: $label/$skill_name. Overwrite? [y/N] " answer
             if [[ "$answer" =~ ^[Yy]$ ]]; then
-                rm "$link"
+                rm -rf "$dest"
             else
                 echo "  Skipped $label/$skill_name"
                 return 0
@@ -47,7 +43,7 @@ install_skill() {
         fi
     fi
 
-    ln -s "$src" "$link"
+    cp -r "$src" "$dest"
     echo "  ✓ $label/$skill_name"
 }
 
