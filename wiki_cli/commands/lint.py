@@ -5,12 +5,16 @@
     - wiki/index.md regeneration (pure derived file, safe to overwrite)
   WILL NOT auto-fix:
     - Wiki entry content (requires human review)
-    - Broken wikilinks inside pages (marking only, not deleting)
+    - Broken wikilinks inside pages (use --fix-links to fix)
     - Orphan pages (marking only, not deleting)
     - schema.md (human-owned, never touched by tool)
     - Raw files
 
-When in doubt, lint reports the problem and lets the human decide.
+--fix-links mode:
+  WILL auto-fix:
+    - Broken [[wikilinks]] via fuzzy matching to valid stems
+    - Unresolvable links escaped as plain text
+  Uses the same fuzzy matching as compile-time link fixing.
 """
 import json
 import re
@@ -25,7 +29,7 @@ from ..core.config import Config
 from ..core.llm import LLMClient
 from ..core.state import WikiState
 from ..prompts.lint import LINT_SYSTEM, build_lint_prompt
-from ..utils.markdown import find_broken_links, find_orphan_pages
+from ..utils.markdown import find_broken_links, find_orphan_pages, get_valid_stems, fix_wikilinks_in_content
 
 console = Console()
 
@@ -52,7 +56,7 @@ def _build_wiki_summary(wiki_dir: Path) -> str:
     return "\n\n".join(lines) if lines else "（无 wiki 条目）"
 
 
-def lint_command(config: Config, auto: bool = False):
+def lint_command(config: Config, auto: bool = False, fix_links: bool = False):
     """Run health check on the knowledge base."""
     state = WikiState(config)
 
@@ -76,6 +80,10 @@ def lint_command(config: Config, auto: bool = False):
     # Count contradiction markers
     contradictions = _count_markers(config.wiki_dir, r"⚠️ 矛盾标注")
 
+    # Fix broken links if requested
+    if fix_links and broken:
+        _fix_broken_links(config, broken)
+
     # Display quick summary
     _display_quick_report(broken, orphans, stale_pages, unprocessed, contradictions)
 
@@ -84,6 +92,37 @@ def lint_command(config: Config, auto: bool = False):
         _run_llm_lint(config, state, stale_days, auto)
 
     state.update_last_lint()
+
+
+def _fix_broken_links(config: Config, broken: list[tuple[Path, str]]):
+    """Fix broken wikilinks in all wiki pages using fuzzy matching."""
+    valid_stems = get_valid_stems(config.wiki_dir)
+    fixed_count = 0
+    escaped_count = 0
+
+    # Group by file for batch processing
+    files_with_broken: dict[Path, set[str]] = {}
+    for file_path, link in broken:
+        files_with_broken.setdefault(file_path, set()).add(link)
+
+    for file_path, broken_links in files_with_broken.items():
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+
+        fixed_content, fixes = fix_wikilinks_in_content(content, valid_stems)
+        if fixes:
+            from ..core.compiler import _atomic_write
+            _atomic_write(file_path, fixed_content)
+            for fix_desc in fixes:
+                if "→ `" in fix_desc:
+                    escaped_count += 1
+                else:
+                    fixed_count += 1
+                console.print(f"  [yellow]⟳[/yellow] {file_path.name}: {fix_desc}")
+
+    console.print(f"\n[green]✓ Link fix complete:[/green] {fixed_count} fixed, {escaped_count} escaped (no match)")
 
 
 def _display_quick_report(broken, orphans, stale_pages, unprocessed, contradictions):

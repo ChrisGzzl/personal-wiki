@@ -100,11 +100,12 @@ def query(question, wiki_root, deep, save):
 @cli.command()
 @click.option("--wiki-root", "-w", default=None, help="Wiki root directory")
 @click.option("--auto", is_flag=True, default=False, help="Auto-fix safe issues (update index, etc.)")
-def lint(wiki_root, auto):
+@click.option("--fix-links", is_flag=True, default=False, help="Fix broken wikilinks using fuzzy matching")
+def lint(wiki_root, auto, fix_links):
     """Run health check on the knowledge base."""
     from wiki_cli.commands.lint import lint_command
     config = _get_config(wiki_root)
-    lint_command(config, auto=auto)
+    lint_command(config, auto=auto, fix_links=fix_links)
 
 
 @cli.command()

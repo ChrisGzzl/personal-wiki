@@ -13,6 +13,7 @@ from .llm import LLMClient
 from .state import WikiState
 from ..prompts.ingest import INGEST_SYSTEM, build_ingest_prompt
 from ..prompts.compile import COMPILE_SYSTEM, build_compile_prompt
+from ..utils.markdown import fix_wikilinks_in_content
 
 console = Console()
 
@@ -49,103 +50,25 @@ def _fix_wikilinks(actions: list[dict], valid_stems: set[str]) -> list[dict]:
     """Fix broken wikilinks in action content before writing.
 
     Replaces [[invalid-link]] with the closest valid stem match,
-    or removes the link if no reasonable match exists.
+    or escapes the link if no reasonable match exists.
+    Handles both [[stem]] and [[stem|display text]] formats.
     """
     for action in actions:
-        if action.get("type") != "create":
+        if action.get("type") not in ("create", "update"):
             continue
 
-        content = action.get("content", "")
-        if not content:
+        field = "content" if action.get("type") == "create" else "append"
+        text = action.get(field, "")
+        if not text:
             continue
 
-        # Find all [[wikilink]] references
-        original = content
-        for match in re.finditer(r'\[\[([^\]]+)\]\]', content):
-            link = match.group(1)
-            if link in valid_stems:
-                continue  # already valid
-
-            # Try to find a fuzzy match
-            fixed = _fuzzy_match_stem(link, valid_stems)
-            if fixed:
-                content = content.replace(f"[[{link}]]", f"[[{fixed}]]")
-                console.print(f"  [yellow]⟳ link fix:[/yellow] [[{link}]] → [[{fixed}]]")
-            else:
-                # No match: escape the link so it's not treated as wikilink
-                content = content.replace(f"[[{link}]]", f"`[[{link}]]`")
-                console.print(f"  [yellow]⟳ link fix:[/yellow] [[{link}]] → escaped (no match)")
-
-        if content != original:
-            action["content"] = content
-
-    # Also fix wikilinks in update action append text
-    for action in actions:
-        if action.get("type") != "update":
-            continue
-        append_text = action.get("append", "")
-        if not append_text:
-            continue
-
-        original = append_text
-        for match in re.finditer(r'\[\[([^\]]+)\]\]', append_text):
-            link = match.group(1)
-            if link in valid_stems:
-                continue
-            fixed = _fuzzy_match_stem(link, valid_stems)
-            if fixed:
-                append_text = append_text.replace(f"[[{link}]]", f"[[{fixed}]]")
-            else:
-                append_text = append_text.replace(f"[[{link}]]", f"`[[{link}]]`")
-
-        if append_text != original:
-            action["append"] = append_text
+        fixed_text, fixes = fix_wikilinks_in_content(text, valid_stems)
+        if fixes:
+            action[field] = fixed_text
+            for fix_desc in fixes:
+                console.print(f"  [yellow]⟳ link fix:[/yellow] {fix_desc}")
 
     return actions
-
-
-def _fuzzy_match_stem(link: str, valid_stems: set[str]) -> str | None:
-    """Find the best matching valid stem for a broken wikilink.
-
-    Handles common LLM mistakes: Chinese names, wrong naming conventions,
-    close but not exact stem names.
-    """
-    # Skip obviously non-link content
-    if not link or len(link) < 2:
-        return None
-
-    link_lower = link.lower()
-
-    # Exact case-insensitive match
-    for stem in valid_stems:
-        if stem.lower() == link_lower:
-            return stem
-
-    # Check if link is a substring of a valid stem or vice versa
-    candidates = []
-    for stem in valid_stems:
-        stem_lower = stem.lower()
-        # Substring match
-        if link_lower in stem_lower or stem_lower in link_lower:
-            # Score by how much they overlap
-            overlap = min(len(link_lower), len(stem_lower)) / max(len(link_lower), len(stem_lower))
-            candidates.append((stem, overlap))
-
-    # Also try word-level matching for hyphenated stems
-    link_words = set(link_lower.replace("-", " ").split())
-    for stem in valid_stems:
-        stem_words = set(stem.lower().replace("-", " ").split())
-        word_overlap = len(link_words & stem_words) / max(len(link_words | stem_words), 1)
-        if word_overlap > 0.4:
-            candidates.append((stem, word_overlap))
-
-    if candidates:
-        candidates.sort(key=lambda x: -x[1])
-        best = candidates[0]
-        if best[1] >= 0.4:
-            return best[0]
-
-    return None
 
 
 def _dedup_actions(actions: list[dict], existing_stems: set[str], config: Config) -> list[dict]:
